@@ -8,9 +8,18 @@ import { EducationForm } from './EducationForm';
 import { SkillsForm } from './SkillsForm';
 import { ResumePreview } from './ResumePreview';
 import { ThemeSwitcher } from './ThemeSwitcher';
-import { ChevronLeft, ChevronRight, Download, FileText, Eye, Palette } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, FileText, Eye, Palette, Archive } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { toast } from '@/hooks/use-toast';
+import { useResume } from '@/context/ResumeContext';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const steps = [
   { component: PersonalInfoForm },
@@ -23,6 +32,7 @@ export function ResumeBuilder() {
   const [currentStep, setCurrentStep] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const { state } = useResume();
 
   const CurrentStepComponent = steps[currentStep].component;
 
@@ -70,6 +80,125 @@ export function ResumeBuilder() {
     }
   };
 
+  const handleDownloadZip = async () => {
+    toast({
+      title: 'Creating ZIP...',
+      description: 'Please wait while we package your resume',
+    });
+
+    try {
+      const zip = new JSZip();
+      
+      // Add JSON data
+      zip.file('resume-data.json', JSON.stringify(state, null, 2));
+      
+      // Create a simple HTML version
+      const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${state.personalInfo.fullName || 'Resume'}</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 0 auto; padding: 40px 20px; color: #333; }
+    h1 { color: #0891b2; margin-bottom: 10px; }
+    .contact { color: #666; font-size: 14px; margin-bottom: 20px; }
+    .section { margin-bottom: 25px; }
+    .section-title { color: #0891b2; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #0891b2; padding-bottom: 5px; margin-bottom: 15px; }
+    .item { margin-bottom: 15px; }
+    .item-header { display: flex; justify-content: space-between; }
+    .item-title { font-weight: 600; }
+    .item-subtitle { color: #666; font-size: 14px; }
+    .item-date { color: #888; font-size: 13px; }
+    .item-desc { font-size: 14px; margin-top: 5px; color: #555; }
+    .skills { display: flex; flex-wrap: wrap; gap: 8px; }
+    .skill { background: #e0f7fa; color: #0891b2; padding: 4px 12px; border-radius: 20px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>${state.personalInfo.fullName || 'Your Name'}</h1>
+  <div class="contact">
+    ${[state.personalInfo.email, state.personalInfo.phone, state.personalInfo.location].filter(Boolean).join(' • ')}
+  </div>
+  
+  ${state.personalInfo.summary ? `
+  <div class="section">
+    <div class="section-title">Summary</div>
+    <p>${state.personalInfo.summary}</p>
+  </div>` : ''}
+  
+  ${state.experiences.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Experience</div>
+    ${state.experiences.map(exp => `
+    <div class="item">
+      <div class="item-header">
+        <div>
+          <div class="item-title">${exp.position}</div>
+          <div class="item-subtitle">${exp.company}</div>
+        </div>
+        <div class="item-date">${exp.startDate} - ${exp.current ? 'Present' : exp.endDate}</div>
+      </div>
+      ${exp.description ? `<div class="item-desc">${exp.description}</div>` : ''}
+    </div>`).join('')}
+  </div>` : ''}
+  
+  ${state.education.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Education</div>
+    ${state.education.map(edu => `
+    <div class="item">
+      <div class="item-header">
+        <div>
+          <div class="item-title">${edu.degree} in ${edu.field}</div>
+          <div class="item-subtitle">${edu.institution}</div>
+        </div>
+        <div class="item-date">${edu.startDate} - ${edu.endDate}</div>
+      </div>
+    </div>`).join('')}
+  </div>` : ''}
+  
+  ${state.skills.length > 0 ? `
+  <div class="section">
+    <div class="section-title">Skills</div>
+    <div class="skills">
+      ${state.skills.map(skill => `<span class="skill">${skill}</span>`).join('')}
+    </div>
+  </div>` : ''}
+</body>
+</html>`;
+      
+      zip.file('resume.html', htmlContent);
+      
+      // Add a readme
+      const readme = `Resume Export
+=============
+
+This ZIP contains your resume in multiple formats:
+
+1. resume-data.json - Raw resume data (can be imported back)
+2. resume.html - Standalone HTML version of your resume
+
+Created with Resume Builder
+`;
+      zip.file('README.txt', readme);
+      
+      const blob = await zip.generateAsync({ type: 'blob' });
+      saveAs(blob, `${state.personalInfo.fullName || 'resume'}-export.zip`);
+      
+      toast({
+        title: 'Success!',
+        description: 'Your resume ZIP has been downloaded',
+      });
+    } catch (error) {
+      toast({
+        title: 'Error',
+        description: 'Failed to create ZIP. Please try again.',
+        variant: 'destructive',
+      });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -96,14 +225,27 @@ export function ResumeBuilder() {
                 <Eye className="h-4 w-4 mr-2" />
                 {showPreview ? 'Edit' : 'Preview'}
               </Button>
-              <Button
-                onClick={handleDownloadPDF}
-                size="sm"
-                className="bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download PDF
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="bg-gradient-to-r from-primary to-accent hover:opacity-90 transition-opacity"
+                  >
+                    <Download className="h-4 w-4 mr-2" />
+                    Download
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={handleDownloadPDF}>
+                    <FileText className="h-4 w-4 mr-2" />
+                    Download PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDownloadZip}>
+                    <Archive className="h-4 w-4 mr-2" />
+                    Download ZIP
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
